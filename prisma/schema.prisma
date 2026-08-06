@@ -1,0 +1,82 @@
+// Prisma 스키마 - CPC 관리 대시보드
+// DB: PostgreSQL (Vercel Postgres, Neon, Supabase 등 어디든 연결 문자열만 있으면 됨)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 워크센터 (P1/P2/P3 ...). 이름/색상/순서를 DB에서 관리하므로
+// 워크센터가 추가/변경돼도 코드 수정 없이 화면에 반영됩니다.
+model Workcenter {
+  id         String      @id @default(cuid())
+  code       String      @unique // 예: "P1-BAR Packing"
+  label      String      // 화면 표시용, 예: "베버리지"
+  sortOrder  Int         @default(0)
+  color      String      @default("#6366f1")
+  workers    Worker[]
+  cpcEntries CpcEntry[]
+}
+
+// 근무자 마스터
+model Worker {
+  id             String           @id @default(cuid())
+  name           String
+  workcenterId   String
+  workcenter     Workcenter       @relation(fields: [workcenterId], references: [id])
+  employmentType String           @default("FULLTIME") // FULLTIME | PARTTIME
+  active         Boolean          @default(true)
+  weeklySchedules WeeklySchedule[]
+  dailyHours     DailyHour[]
+  createdAt      DateTime         @default(now())
+
+  @@index([workcenterId])
+}
+
+// 파트타임 근무자의 기본 주간 스케줄 (요일별 기본 근무시간)
+model WeeklySchedule {
+  id       String @id @default(cuid())
+  workerId String
+  worker   Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  weekday  Int    // 0=일 1=월 2=화 3=수 4=목 5=금 6=토
+  hours    Float
+
+  @@unique([workerId, weekday])
+}
+
+// 특정 날짜의 실제 근무시간 (기본 스케줄에 대한 예외/연장근무/결근 처리)
+// 이 테이블에 행이 없으면 WeeklySchedule 기본값을 사용합니다.
+model DailyHour {
+  id             String   @id @default(cuid())
+  workerId       String
+  worker         Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  date           DateTime @db.Date
+  scheduledHours Float?   // 그 날짜의 기본근무시간을 덮어씀 (null이면 WeeklySchedule 값 사용)
+  overtimeHours  Float    @default(0) // 연장근무 시간 (기본근무시간에 더해짐)
+  present        Boolean  @default(true) // false면 결근 처리 (근무시간 0)
+  note           String?
+
+  @@unique([workerId, date])
+  @@index([date])
+}
+
+// 일자별/워크센터별/디스크립션별 CPC 원본 데이터
+// (기존 엑셀 "원본데이터" 시트를 그대로 업로드하면 이 테이블로 파싱되어 들어갑니다)
+model CpcEntry {
+  id           String     @id @default(cuid())
+  date         DateTime   @db.Date
+  workcenterId String
+  workcenter   Workcenter @relation(fields: [workcenterId], references: [id])
+  description  String
+  flight       String?
+  salesNo      String?
+  customerName String?
+  totalCpc     Float
+  createdAt    DateTime   @default(now())
+
+  @@index([date, workcenterId])
+}
