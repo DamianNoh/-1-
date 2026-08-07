@@ -1,4 +1,4 @@
-// 초기 워크센터 3개 시딩 (기존 엑셀 매핑과 동일)
+// 초기 워크센터 3개 + 기본 시프트 코드 7종 시딩
 // 실행: node prisma/seed.js  (또는 package.json에 "prisma": {"seed": "node prisma/seed.js"} 추가 후 npx prisma db seed)
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
@@ -18,7 +18,25 @@ async function main() {
     });
   }
 
-  console.log('워크센터 시드 완료');
+  const shiftTypes = [
+    { code: 'AA', startTime: '06:00', endTime: '15:00', hours: 9, sortOrder: 1 },
+    { code: 'AS', startTime: '08:00', endTime: '16:00', hours: 8, sortOrder: 2 },
+    { code: 'A', startTime: '08:00', endTime: '17:00', hours: 9, sortOrder: 3 },
+    { code: 'AN', startTime: '08:00', endTime: '18:00', hours: 10, sortOrder: 4 },
+    { code: 'N', startTime: '10:00', endTime: '19:00', hours: 9, sortOrder: 5 },
+    { code: 'P', startTime: '13:00', endTime: '22:00', hours: 9, sortOrder: 6 },
+    { code: 'D', startTime: '08:00', endTime: '19:00', hours: 11, sortOrder: 7 }
+  ];
+
+  for (const st of shiftTypes) {
+    await prisma.shiftType.upsert({
+      where: { code: st.code },
+      update: { startTime: st.startTime, endTime: st.endTime, hours: st.hours, sortOrder: st.sortOrder },
+      create: st
+    });
+  }
+
+  console.log('워크센터 + 시프트 코드 시드 완료');
 }
 
 main()

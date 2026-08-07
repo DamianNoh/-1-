@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { prisma } from '../../../../lib/db';
+import { excelDateToJs } from '../../../../lib/excelDate';
 
 export const runtime = 'nodejs';
 
@@ -32,19 +33,19 @@ function buildHeaderIndex(headerRow) {
   return idx;
 }
 
-function excelDateToJs(value) {
-  if (value instanceof Date) return value;
-  if (typeof value === 'number') {
-    // 엑셀 시리얼 날짜 (1900 날짜 시스템 기준)
-    const utcDays = Math.floor(value - 25569);
-    const ms = utcDays * 86400 * 1000;
-    return new Date(ms);
+export async function POST(req) {
+  try {
+    return await handleUpload(req);
+  } catch (err) {
+    console.error('CPC 엑셀 업로드 처리 중 오류:', err);
+    return NextResponse.json(
+      { error: '업로드 처리 중 서버 오류가 발생했습니다: ' + (err && err.message ? err.message : String(err)) },
+      { status: 500 }
+    );
   }
-  const parsed = new Date(value);
-  return isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export async function POST(req) {
+async function handleUpload(req) {
   const formData = await req.formData();
   const file = formData.get('file');
   if (!file) {
@@ -52,7 +53,11 @@ export async function POST(req) {
   }
 
   const arrayBuffer = await file.arrayBuffer();
-  const workbook = XLSX.read(arrayBuffer, { type: 'buffer', cellDates: true });
+  // cellDates를 끄고 날짜 셀도 항상 원본 숫자(엑셀 시리얼 값)로 받습니다.
+  // cellDates:true로 Date 객체를 만들면 라이브러리 내부적으로 시간대를 다르게 다뤄서
+  // 서버 환경에 따라 하루가 밀리는 문제가 있었습니다. 숫자로 받아서 직접 UTC로 변환하면
+  // 서버 시간대와 무관하게 항상 같은 날짜가 나옵니다.
+  const workbook = XLSX.read(arrayBuffer, { type: 'buffer', cellDates: false });
 
   const sheetName = workbook.SheetNames.includes('원본데이터') ? '원본데이터' : workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
@@ -69,6 +74,11 @@ export async function POST(req) {
       { error: `필수 열을 찾지 못했습니다: ${missing.join(', ')} (헤더 행을 확인해주세요)` },
       { status: 400 }
     );
+  }
+
+  if (rows.length > 1) {
+    const sampleVal = rows[1][headerIdx.date];
+    console.log('CPC 업로드 디버그: 첫 데이터행 날짜 셀 원본 =', sampleVal, '(타입:', typeof sampleVal, ')');
   }
 
   const parsed = [];
@@ -132,7 +142,7 @@ export async function POST(req) {
       }))
     });
     return { deletedCount: deleted.count, createdCount: created.count };
-  });
+  }, { timeout: 30000, maxWait: 10000 });
 
   return NextResponse.json({
     ok: true,

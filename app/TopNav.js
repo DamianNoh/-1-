@@ -4,9 +4,8 @@ import { usePathname, useRouter } from 'next/navigation';
 const LINKS = [
   { href: '/dashboard', label: '대시보드' },
   { href: '/admin/cpc-data', label: 'CPC 데이터' },
-  { href: '/admin/workers', label: '근무자' },
-  { href: '/admin/schedule', label: '기본 스케줄' },
-  { href: '/admin/hours', label: '일일 근무시간' }
+  { href: '/admin/shift-entry', label: '근무 인원 입력' },
+  { href: '/admin/shift-types', label: '시프트 코드 관리' }
 ];
 
 export default function TopNav() {
@@ -22,7 +21,7 @@ export default function TopNav() {
 
   return (
     <div className="topnav">
-      <div className="brand">CPC 관리 대시보드</div>
+      <a href="/dashboard" className="brand" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>CPC 관리 대시보드</a>
       <nav>
         {LINKS.map((l) => (
           <a key={l.href} href={l.href} className={pathname.startsWith(l.href) ? 'active' : ''}>

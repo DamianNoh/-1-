@@ -45,18 +45,32 @@ export default function CpcDataPage() {
     if (!file) return;
     setUploading(true);
     setUploadMsg('');
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/cpc-entries/upload', { method: 'POST', body: fd });
-    const json = await res.json();
-    setUploading(false);
-    if (!res.ok) {
-      setUploadMsg('오류: ' + (json.error || '업로드 실패'));
-      return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/cpc-entries/upload', { method: 'POST', body: fd });
+      let json = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (!res.ok) {
+        setUploadMsg('오류: ' + (json && json.error ? json.error : `업로드 실패 (상태 코드 ${res.status})`));
+        return;
+      }
+      if (!json) {
+        setUploadMsg('오류: 서버 응답을 해석하지 못했습니다.');
+        return;
+      }
+      setUploadMsg(`완료: ${json.rangeStart} ~ ${json.rangeEnd} 기간 기존 ${json.deletedCount}건 교체, ${json.createdCount}건 등록`);
+      loadWorkcenters();
+      loadEntries();
+    } catch (err) {
+      setUploadMsg('오류: 네트워크 문제로 업로드에 실패했습니다. (' + (err && err.message ? err.message : String(err)) + ')');
+    } finally {
+      setUploading(false);
     }
-    setUploadMsg(`완료: ${json.rangeStart} ~ ${json.rangeEnd} 기간 기존 ${json.deletedCount}건 교체, ${json.createdCount}건 등록`);
-    loadWorkcenters();
-    loadEntries();
   }
 
   async function submitManual(e) {
@@ -107,14 +121,16 @@ export default function CpcDataPage() {
         <div className="card">
           <div className="card-title">워크센터 관리</div>
           <div className="card-desc">P1/P2/P3에 해당하는 워크센터 목록 (새 워크센터도 여기서 추가 가능)</div>
-          <form onSubmit={addWorkcenter} className="form-grid" style={{ marginBottom: 14 }}>
-            <label>코드 (엑셀의 Workcenter 열 값과 동일해야 함)
-              <input value={wcCode} onChange={(e) => setWcCode(e.target.value)} placeholder="예: P1-BAR Packing" />
+          <form onSubmit={addWorkcenter} className="form-grid" style={{ marginBottom: 14, alignItems: 'end' }}>
+            <label>코드
+              <input value={wcCode} onChange={(e) => setWcCode(e.target.value)} placeholder="예: P1-BAR Packing" title="엑셀의 Workcenter 열 값과 동일해야 함" />
+              <span style={{ fontSize: 11, color: '#767b8a', fontWeight: 400 }}>엑셀 Workcenter 값과 동일해야 함</span>
             </label>
             <label>표시 이름
               <input value={wcLabel} onChange={(e) => setWcLabel(e.target.value)} placeholder="예: 베버리지" />
+              <span style={{ fontSize: 11, color: 'transparent', fontWeight: 400 }}>-</span>
             </label>
-            <button className="btn ghost" type="submit">추가</button>
+            <button className="btn" type="submit">추가</button>
           </form>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {workcenters.map((wc) => (

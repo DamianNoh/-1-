@@ -13,54 +13,77 @@ datasource db {
 // 워크센터 (P1/P2/P3 ...). 이름/색상/순서를 DB에서 관리하므로
 // 워크센터가 추가/변경돼도 코드 수정 없이 화면에 반영됩니다.
 model Workcenter {
-  id         String      @id @default(cuid())
-  code       String      @unique // 예: "P1-BAR Packing"
-  label      String      // 화면 표시용, 예: "베버리지"
-  sortOrder  Int         @default(0)
-  color      String      @default("#6366f1")
-  workers    Worker[]
-  cpcEntries CpcEntry[]
+  id              String          @id @default(cuid())
+  code            String          @unique // 예: "P1-BAR Packing"
+  label           String          // 화면 표시용, 예: "베버리지"
+  sortOrder       Int             @default(0)
+  color           String          @default("#6366f1")
+  cpcEntries      CpcEntry[]
+  shiftCounts     ShiftCount[]
+  overtimeEntries OvertimeEntry[]
 }
 
-// 근무자 마스터
-model Worker {
-  id             String           @id @default(cuid())
-  name           String
-  workcenterId   String
-  workcenter     Workcenter       @relation(fields: [workcenterId], references: [id])
-  employmentType String           @default("FULLTIME") // FULLTIME | PARTTIME
-  active         Boolean          @default(true)
-  weeklySchedules WeeklySchedule[]
-  dailyHours     DailyHour[]
-  createdAt      DateTime         @default(now())
-
-  @@index([workcenterId])
+// 시프트 코드 마스터 (예: AA 06:00~15:00, 9시간). 관리자 화면에서 추가/수정/삭제 가능합니다.
+model ShiftType {
+  id                  String               @id @default(cuid())
+  code                String               @unique // 예: "AA"
+  startTime           String               // "06:00"
+  endTime             String               // "15:00"
+  hours               Float                // 근무시간 (예: 9)
+  sortOrder           Int                  @default(0)
+  shiftCounts         ShiftCount[]
+  overheadShiftCounts OverheadShiftCount[]
 }
 
-// 파트타임 근무자의 기본 주간 스케줄 (요일별 기본 근무시간)
-model WeeklySchedule {
-  id       String @id @default(cuid())
-  workerId String
-  worker   Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  weekday  Int    // 0=일 1=월 2=화 3=수 4=목 5=금 6=토
-  hours    Float
+// 특정 날짜 + 워크센터 + 시프트코드별 배치 인원 수
+// (개인별 근무자를 등록하지 않고, "그날 그 워크센터에 그 시프트로 몇 명 배치됐는지"만 관리합니다)
+model ShiftCount {
+  id           String     @id @default(cuid())
+  date         DateTime   @db.Date
+  workcenterId String
+  workcenter   Workcenter @relation(fields: [workcenterId], references: [id])
+  shiftTypeId  String
+  shiftType    ShiftType  @relation(fields: [shiftTypeId], references: [id])
+  headcount    Int        @default(0)
 
-  @@unique([workerId, weekday])
+  @@unique([date, workcenterId, shiftTypeId])
+  @@index([date, workcenterId])
 }
 
-// 특정 날짜의 실제 근무시간 (기본 스케줄에 대한 예외/연장근무/결근 처리)
-// 이 테이블에 행이 없으면 WeeklySchedule 기본값을 사용합니다.
-model DailyHour {
-  id             String   @id @default(cuid())
-  workerId       String
-  worker         Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  date           DateTime @db.Date
-  scheduledHours Float?   // 그 날짜의 기본근무시간을 덮어씀 (null이면 WeeklySchedule 값 사용)
-  overtimeHours  Float    @default(0) // 연장근무 시간 (기본근무시간에 더해짐)
-  present        Boolean  @default(true) // false면 결근 처리 (근무시간 0)
-  note           String?
+// 특정 날짜 + 워크센터의 연장근무 합계 시간 (개인별이 아닌 워크센터 전체 합계로 입력)
+model OvertimeEntry {
+  id           String     @id @default(cuid())
+  date         DateTime   @db.Date
+  workcenterId String
+  workcenter   Workcenter @relation(fields: [workcenterId], references: [id])
+  hours        Float      @default(0)
+  note         String?
 
-  @@unique([workerId, date])
+  @@unique([date, workcenterId])
+  @@index([date, workcenterId])
+}
+
+// 관리업무 인력(실장/매니저/반장 등 특정 워크센터에 속하지 않는 인력)의
+// 날짜 + 시프트코드별 인원 수 (워크센터 구분 없음, 근무자와 동일하게 시프트 패턴으로 관리)
+model OverheadShiftCount {
+  id          String    @id @default(cuid())
+  date        DateTime  @db.Date
+  shiftTypeId String
+  shiftType   ShiftType @relation(fields: [shiftTypeId], references: [id])
+  headcount   Int       @default(0)
+
+  @@unique([date, shiftTypeId])
+  @@index([date])
+}
+
+// 관리업무 인력의 날짜별 연장근무 합계 시간
+model OverheadEntry {
+  id     String   @id @default(cuid())
+  date   DateTime @db.Date
+  hours  Float    @default(0)
+  note   String?
+
+  @@unique([date])
   @@index([date])
 }
 
