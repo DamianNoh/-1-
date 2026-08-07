@@ -18,14 +18,16 @@ async function main() {
     });
   }
 
+  // hours는 시작~종료 사이의 전체 시간에서 휴게시간 1시간을 뺀 "실 근무시간"입니다.
+  // (예: AA는 06:00~15:00으로 총 9시간이지만 휴게 1시간을 빼서 8시간으로 등록)
   const shiftTypes = [
-    { code: 'AA', startTime: '06:00', endTime: '15:00', hours: 9, sortOrder: 1 },
-    { code: 'AS', startTime: '08:00', endTime: '16:00', hours: 8, sortOrder: 2 },
-    { code: 'A', startTime: '08:00', endTime: '17:00', hours: 9, sortOrder: 3 },
-    { code: 'AN', startTime: '08:00', endTime: '18:00', hours: 10, sortOrder: 4 },
-    { code: 'N', startTime: '10:00', endTime: '19:00', hours: 9, sortOrder: 5 },
-    { code: 'P', startTime: '13:00', endTime: '22:00', hours: 9, sortOrder: 6 },
-    { code: 'D', startTime: '08:00', endTime: '19:00', hours: 11, sortOrder: 7 }
+    { code: 'AA', startTime: '06:00', endTime: '15:00', hours: 8, sortOrder: 1 },
+    { code: 'AS', startTime: '08:00', endTime: '16:00', hours: 7, sortOrder: 2 },
+    { code: 'A', startTime: '08:00', endTime: '17:00', hours: 8, sortOrder: 3 },
+    { code: 'AN', startTime: '08:00', endTime: '18:00', hours: 9, sortOrder: 4 },
+    { code: 'N', startTime: '10:00', endTime: '19:00', hours: 8, sortOrder: 5 },
+    { code: 'P', startTime: '13:00', endTime: '22:00', hours: 8, sortOrder: 6 },
+    { code: 'D', startTime: '08:00', endTime: '19:00', hours: 10, sortOrder: 7 }
   ];
 
   for (const st of shiftTypes) {

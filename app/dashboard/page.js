@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { LineChart, DonutChart, fmt, fmt1 } from './Charts';
 
 function monthRange(monthStr) {
@@ -18,7 +18,8 @@ function defaultMonth() {
 
 export default function DashboardPage() {
   const [month, setMonth] = useState(defaultMonth());
-  const [mode, setMode] = useState('headcount');
+  const [tableDetail, setTableDetail] = useState(false);
+  const [mode, setMode] = useState('hours');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -78,6 +79,8 @@ export default function DashboardPage() {
   const colorByWc = {};
   seriesMeta.forEach((m) => { colorByWc[m.code] = m.color; });
 
+  const denomLabel = mode === 'hours' ? '근무시간' : '인원수';
+
   return (
     <div className="wrap">
       <div className="header">
@@ -91,8 +94,8 @@ export default function DashboardPage() {
       <div className="toolbar">
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         <div className="seg">
-          <button className={mode === 'headcount' ? 'active' : ''} onClick={() => setMode('headcount')}>배치 인원수 기준</button>
           <button className={mode === 'hours' ? 'active' : ''} onClick={() => setMode('hours')}>근무시간 기준</button>
+          <button className={mode === 'headcount' ? 'active' : ''} onClick={() => setMode('headcount')}>배치 인원수 기준</button>
         </div>
         {loading && <span style={{ fontSize: 12.5, color: '#767b8a' }}>불러오는 중...</span>}
       </div>
@@ -149,6 +152,77 @@ export default function DashboardPage() {
           </div>
 
           <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 4 }}>
+              <div>
+                <div className="card-title">일자별 상세 데이터</div>
+                <div className="card-desc" style={{ margin: 0 }}>
+                  {tableDetail
+                    ? `${mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} 워크센터별 CPC 합계 · ${denomLabel} · 1인당 및 일일 합계`
+                    : `${mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} P1 / P2 / P3 CPC 및 일일 합계`}
+                </div>
+              </div>
+              <div className="seg">
+                <button className={!tableDetail ? 'active' : ''} onClick={() => setTableDetail(false)}>간단히 보기</button>
+                <button className={tableDetail ? 'active' : ''} onClick={() => setTableDetail(true)}>상세히 보기</button>
+              </div>
+            </div>
+            <div className="table-scroll" style={{ marginTop: 16 }}>
+              <table>
+                <thead>
+                  {tableDetail ? (
+                    <>
+                      <tr>
+                        <th rowSpan={2} className="detail-date-col">날짜</th>
+                        {seriesMeta.map((m, i) => (
+                          <th key={i} colSpan={3} style={{ textAlign: 'center', borderLeft: '1px solid var(--line)' }}>{m.name}</th>
+                        ))}
+                        <th rowSpan={2} className="num" style={{ borderLeft: '1px solid var(--line)' }}>일일 합계</th>
+                        <th rowSpan={2} className="num">전체 {denomLabel}</th>
+                        <th rowSpan={2} className="num">전체 1인당</th>
+                      </tr>
+                      <tr>
+                        {seriesMeta.map((m, i) => (
+                          <Fragment key={i}>
+                            <th className="num" style={{ borderLeft: '1px solid var(--line)' }}>CPC합계</th>
+                            <th className="num">{denomLabel}</th>
+                            <th className="num">1인당</th>
+                          </Fragment>
+                        ))}
+                      </tr>
+                    </>
+                  ) : (
+                    <tr>
+                      <th className="detail-date-col">날짜</th>
+                      {seriesMeta.map((m, i) => <th className="num" key={i}>{m.name}</th>)}
+                      <th className="num">일일 합계</th>
+                      <th className="num">전체 1인당</th>
+                    </tr>
+                  )}
+                </thead>
+                <tbody>
+                  {daily.map((d, i) => (
+                    <tr key={i}>
+                      <td className="detail-date-col">{d.date}</td>
+                      {tableDetail
+                        ? seriesMeta.map((m, si) => (
+                            <Fragment key={si}>
+                              <td className="num" style={{ borderLeft: '1px solid var(--line)' }}>{fmt(d['p' + (si + 1) + '_raw'] || 0)}</td>
+                              <td className="num">{fmt1(d['p' + (si + 1) + '_denom'] || 0)}</td>
+                              <td className="num">{fmt1(d['p' + (si + 1)] || 0)}</td>
+                            </Fragment>
+                          ))
+                        : seriesMeta.map((m, si) => <td className="num" key={si}>{fmt1(d['p' + (si + 1)] || 0)}</td>)}
+                      <td className="num" style={tableDetail ? { borderLeft: '1px solid var(--line)' } : undefined}>{fmt(d.total_raw)}</td>
+                      {tableDetail && <td className="num">{fmt1(d.total_denom || 0)}</td>}
+                      <td className="num">{fmt1(d.total_per_person || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">디스크립션 TOP 10 (월간 누계)</div>
             <div className="card-desc">Total CPC 기준 상위 항목</div>
             <div>
@@ -165,33 +239,6 @@ export default function DashboardPage() {
                 );
               })}
               {topDesc.length === 0 && <div style={{ fontSize: 12.5, color: '#767b8a' }}>데이터가 없습니다.</div>}
-            </div>
-          </div>
-
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-title">일자별 상세 데이터</div>
-            <div className="card-desc">{mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} P1 / P2 / P3 CPC 및 일일 합계</div>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>날짜</th>
-                    {seriesMeta.map((m, i) => <th className="num" key={i}>{m.name}</th>)}
-                    <th className="num">일일 합계</th>
-                    <th className="num">전체 1인당</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {daily.map((d, i) => (
-                    <tr key={i}>
-                      <td>{d.date}</td>
-                      {seriesMeta.map((m, si) => <td className="num" key={si}>{fmt1(d['p' + (si + 1)] || 0)}</td>)}
-                      <td className="num">{fmt(d.total_raw)}</td>
-                      <td className="num">{fmt1(d.total_per_person || 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </div>
         </>
