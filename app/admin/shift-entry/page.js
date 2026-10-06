@@ -208,7 +208,7 @@ export default function ShiftEntryPage() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title">근무표 엑셀 업로드</div>
-        <div className="card-desc">회사에서 쓰는 "근무_마감" 형식의 원본 근무표 엑셀을 그대로 업로드하면, 부서별 "일일 투입인원" 요약 행을 읽어서 워크센터(P1/P3/P4)와 관리 인력의 시프트별 인원수를 자동으로 채워줍니다. 벌크&러너는 P4(컨테이너)로 합쳐지고, OAL은 자동으로 제외됩니다. 연장근무 시간은 이 업로드에 포함되지 않으니 아래에서 별도로 입력해주세요. 같은 기간의 기존 입력 내역은 새로 덮어쓰기 됩니다.</div>
+        <div className="card-desc">회사에서 쓰는 "근무_마감" 형식의 원본 근무표 엑셀을 그대로 업로드하면, 부서별 "일일 투입인원" 요약 행을 읽어서 워크센터(P1/P3/P4)와 관리 인력의 시프트별 인원수를 자동으로 채워줍니다. 벌크&러너는 P4(컨테이너)로 합쳐지고, [OAL] 부서는 OAL 워크센터로 자동 입력됩니다. 연장근무 시간은 이 업로드에 포함되지 않으니 아래에서 별도로 입력해주세요. 같은 기간의 기존 입력 내역은 새로 덮어쓰기 됩니다.</div>
         <form onSubmit={uploadRoster} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: rosterMsg ? 12 : 0 }}>
           <input
             type="file"

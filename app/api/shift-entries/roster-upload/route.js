@@ -23,7 +23,7 @@ function normalizeLabel(s) {
 function classifyDept(label) {
   const norm = normalizeLabel(label);
   if (!norm) return null;
-  if (norm.includes('OAL')) return { skip: true };
+  if (norm.includes('OAL')) return { pcode: 'OAL' };
   if (norm.includes('베버리지')) return { pcode: 'P1' };
   if (norm.includes('헤드셋')) return { pcode: 'P3' };
   if (
@@ -160,9 +160,21 @@ async function handleUpload(req) {
   }
 
   // 3) 워크센터/시프트코드 매핑 준비
-  const workcenters = await prisma.workcenter.findMany();
+  let workcenters = await prisma.workcenter.findMany();
+  // OAL 워크센터가 아직 없으면 자동 생성 (CPC 엑셀의 OAL 시트 업로드 때도 같은 코드 'OAL'을 씁니다)
+  const needsOal = Array.from(agg.keys()).some((k) => k.startsWith('OAL|'));
+  if (needsOal && !workcenters.some((wc) => /^OAL/i.test(wc.code))) {
+    await prisma.workcenter.create({
+      data: { code: 'OAL', label: 'OAL', sortOrder: workcenters.length + 1, color: '#ef4444' }
+    });
+    workcenters = await prisma.workcenter.findMany();
+  }
   const wcByPCode = new Map();
   for (const wc of workcenters) {
+    if (/^OAL/i.test(wc.code)) {
+      wcByPCode.set('OAL', wc.id);
+      continue;
+    }
     const m = /P\s*-?\s*(\d+)/i.exec(wc.code);
     if (m) wcByPCode.set('P' + m[1], wc.id);
   }

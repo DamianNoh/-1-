@@ -59,47 +59,57 @@ async function handleUpload(req) {
   // 서버 시간대와 무관하게 항상 같은 날짜가 나옵니다.
   const workbook = XLSX.read(arrayBuffer, { type: 'buffer', cellDates: false });
 
-  const sheetName = workbook.SheetNames.includes('원본데이터') ? '원본데이터' : workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true });
-
-  if (!rows.length) {
-    return NextResponse.json({ error: '엑셀에 데이터가 없습니다.' }, { status: 400 });
-  }
-
-  const headerIdx = buildHeaderIndex(rows[0]);
-  const missing = ['date', 'workcenter', 'description', 'totalCpc'].filter((k) => headerIdx[k] === undefined);
-  if (missing.length) {
-    return NextResponse.json(
-      { error: `필수 열을 찾지 못했습니다: ${missing.join(', ')} (헤더 행을 확인해주세요)` },
-      { status: 400 }
-    );
-  }
-
-  if (rows.length > 1) {
-    const sampleVal = rows[1][headerIdx.date];
-    console.log('CPC 업로드 디버그: 첫 데이터행 날짜 셀 원본 =', sampleVal, '(타입:', typeof sampleVal, ')');
-  }
+  // 읽을 시트 결정:
+  //  - PNP INVOICE 형식: '1ST', '2ND'(OZ) + 'OAL'(외항사) 시트를 모두 읽음. OAL 시트의 행은
+  //    시트에 적힌 워크센터(P1/P3/P4)와 상관없이 전부 'OAL' 워크센터로 저장합니다.
+  //  - 기존 형식: '원본데이터' 시트 또는 첫 번째 시트 한 장만 읽음.
+  const invoiceSheets = workbook.SheetNames.filter((n) => /^(1ST|2ND|OAL)$/i.test(n.trim()));
+  const sheetPlan = invoiceSheets.length
+    ? invoiceSheets.map((n) => ({ name: n, isOal: /^OAL$/i.test(n.trim()) }))
+    : [{ name: workbook.SheetNames.includes('원본데이터') ? '원본데이터' : workbook.SheetNames[0], isOal: false }];
+  const hasOalSheet = sheetPlan.some((s) => s.isOal);
 
   const parsed = [];
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    if (!row || row.length === 0) continue;
-    const dateVal = excelDateToJs(row[headerIdx.date]);
-    const wcCode = row[headerIdx.workcenter];
-    const description = row[headerIdx.description];
-    const totalCpc = Number(row[headerIdx.totalCpc]);
-    if (!dateVal || !wcCode || !description || isNaN(totalCpc)) continue;
+  const sheetReport = [];
+  for (const plan of sheetPlan) {
+    const sheet = workbook.Sheets[plan.name];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true });
+    if (!rows.length) {
+      sheetReport.push({ sheet: plan.name, rows: 0 });
+      continue;
+    }
 
-    parsed.push({
-      date: dateVal,
-      workcenterCode: String(wcCode).trim(),
-      description: String(description).trim(),
-      totalCpc,
-      flight: headerIdx.flight !== undefined ? String(row[headerIdx.flight] ?? '') || null : null,
-      salesNo: headerIdx.salesNo !== undefined ? String(row[headerIdx.salesNo] ?? '') || null : null,
-      customerName: headerIdx.customerName !== undefined ? String(row[headerIdx.customerName] ?? '') || null : null
-    });
+    const headerIdx = buildHeaderIndex(rows[0]);
+    const missing = ['date', 'workcenter', 'description', 'totalCpc'].filter((k) => headerIdx[k] === undefined);
+    if (missing.length) {
+      return NextResponse.json(
+        { error: `[${plan.name}] 시트에서 필수 열을 찾지 못했습니다: ${missing.join(', ')} (헤더 행을 확인해주세요)` },
+        { status: 400 }
+      );
+    }
+
+    let count = 0;
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.length === 0) continue;
+      const dateVal = excelDateToJs(row[headerIdx.date]);
+      const wcCode = row[headerIdx.workcenter];
+      const description = row[headerIdx.description];
+      const totalCpc = Number(row[headerIdx.totalCpc]);
+      if (!dateVal || !wcCode || !description || isNaN(totalCpc)) continue;
+
+      parsed.push({
+        date: dateVal,
+        workcenterCode: plan.isOal ? 'OAL' : String(wcCode).trim(),
+        description: String(description).trim(),
+        totalCpc,
+        flight: headerIdx.flight !== undefined ? String(row[headerIdx.flight] ?? '') || null : null,
+        salesNo: headerIdx.salesNo !== undefined ? String(row[headerIdx.salesNo] ?? '') || null : null,
+        customerName: headerIdx.customerName !== undefined ? String(row[headerIdx.customerName] ?? '') || null : null
+      });
+      count++;
+    }
+    sheetReport.push({ sheet: plan.name, rows: count, routedTo: plan.isOal ? 'OAL' : '시트의 워크센터' });
   }
 
   if (!parsed.length) {
@@ -115,7 +125,12 @@ async function handleUpload(req) {
     const currentCount = await prisma.workcenter.count();
     for (let i = 0; i < missingCodes.length; i++) {
       const created = await prisma.workcenter.create({
-        data: { code: missingCodes[i], label: missingCodes[i], sortOrder: currentCount + i + 1 }
+        data: {
+          code: missingCodes[i],
+          label: missingCodes[i],
+          sortOrder: currentCount + i + 1,
+          ...(missingCodes[i] === 'OAL' ? { color: '#ef4444' } : {})
+        }
       });
       codeToId.set(created.code, created.id);
     }
@@ -127,8 +142,11 @@ async function handleUpload(req) {
 
   const result = await prisma.$transaction(async (tx) => {
     // 같은 기간 재업로드 시 중복 방지: 해당 기간 기존 데이터는 삭제 후 새로 삽입
+    // OAL 시트가 함께 올라온 경우 전체 기간 교체, OAL 시트가 없는 파일이면 기존 OAL 데이터는 보존
     const deleted = await tx.cpcEntry.deleteMany({
-      where: { date: { gte: minDate, lte: maxDate } }
+      where: hasOalSheet
+        ? { date: { gte: minDate, lte: maxDate } }
+        : { date: { gte: minDate, lte: maxDate }, workcenter: { code: { not: 'OAL' } } }
     });
     const created = await tx.cpcEntry.createMany({
       data: parsed.map((p) => ({
@@ -148,6 +166,7 @@ async function handleUpload(req) {
     ok: true,
     rangeStart: minDate.toISOString().slice(0, 10),
     rangeEnd: maxDate.toISOString().slice(0, 10),
+    sheetReport,
     ...result
   });
 }
