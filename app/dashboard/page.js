@@ -29,7 +29,8 @@ function weekdayLabel(dateStr) {
 
 // 워크센터별 목표 CPC 수치 (근무시간당). 워크센터 이름(라벨)에 포함된 텍스트로 매칭합니다.
 // 목표는 하한선입니다 (실제 값이 목표보다 높아야 좋음).
-const TARGETS = { '베버리지': 43.3, '헤드셋': 63, '컨테이너': 25.2 };
+const TARGETS = { '베버리지': 43.3, '헤드셋': 63, '컨테이너': 25.2, 'OAL': 41.9 };
+const TOTAL_TARGET = 42; // 전체 1인당 CPC 평균 목표
 function findTarget(name) {
   const hit = Object.entries(TARGETS).find(([k]) => name.includes(k));
   return hit ? hit[1] : null;
@@ -53,6 +54,22 @@ function buildReason(curRaw, curDenom, prevRaw, prevDenom, mode) {
   else if (denomChangePct > 5 && rawChangePct < -5) cause = `${denomLabel} 증가와 CPC 금액 감소가 함께 작용한 것으로 보입니다.`;
   else cause = '전월과 큰 차이는 없어 다른 요인을 확인해볼 필요가 있습니다.';
   return `전월 대비 ${rawTxt}, ${denomTxt} — ${cause}`;
+}
+
+// 목표 대비 현황(일자별 히트맵 + 미달 원인)을 카드 항목에 붙입니다.
+function attachTarget(entry, target, actual, dayValues, daily, curRaw, curDenom, prevRaw, prevDenom, mode) {
+  entry.target = target;
+  if (target == null) return;
+  const dayStatus = daily.map((d, i) => ({ date: d.date, ok: (dayValues[i] || 0) >= target }));
+  const missedCount = dayStatus.filter((ds) => !ds.ok).length;
+  if (missedCount > 0) {
+    entry.dayStatus = dayStatus;
+    entry.missedCount = missedCount;
+    entry.missedTotal = dayStatus.length;
+  }
+  if (actual < target) {
+    entry.reason = buildReason(curRaw, curDenom, prevRaw, prevDenom, mode);
+  }
 }
 
 export default function DashboardPage() {
@@ -102,33 +119,36 @@ export default function DashboardPage() {
     const avg = (arr) => sum(arr) / arr.length;
     const totalSum = sum(totalRaw);
     const totalAvg = avg(totalRaw);
-    const totalPerPersonAvg = avg(daily.map((d) => d.total_per_person || 0));
+    const totalPerPersonAvg = avg(totalPerPerson);
+    const prevDaily = prevData?.daily || [];
+
+    const totalEntry = {
+      label: '전체 1인당 CPC 평균',
+      color: 'var(--total)',
+      value: fmt1(totalPerPersonAvg),
+      rawValue: totalPerPersonAvg,
+      sub: mode === 'hours' ? '전체 근무시간당 (워크센터+관리인력)' : '전체 인원 1인당 (워크센터+관리인력)'
+    };
+    attachTarget(
+      totalEntry, TOTAL_TARGET, totalPerPersonAvg, totalPerPerson, daily,
+      sumField(daily, 'total_raw'), sumField(daily, 'total_denom'),
+      sumField(prevDaily, 'total_raw'), sumField(prevDaily, 'total_denom'), mode
+    );
+
     const base = [
       { label: '일일 합계 CPC (월 누계)', color: 'var(--total)', value: fmt(totalSum), sub: `${data.range_label} 합산` },
       { label: '일평균 합계 CPC', color: 'var(--total)', value: fmt1(totalAvg), sub: '1일 평균' },
-      { label: '전체 1인당 CPC 평균', color: 'var(--total)', value: fmt1(totalPerPersonAvg), sub: mode === 'hours' ? '전체 근무시간당 (P1+P2+P3+관리인력)' : '전체 인원 1인당 (P1+P2+P3+관리인력)' }
+      totalEntry
     ];
-    const prevDaily = prevData?.daily || [];
+
     seriesForChart.forEach((s, idx) => {
       const actual = avg(s.data);
-      const target = findTarget(s.name);
-      const entry = { label: s.name + ' 평균', color: s.color, value: fmt1(actual), rawValue: actual, sub: mode === 'hours' ? '근무시간당' : '배치 인원 1인당', target };
-      if (target != null) {
-        const dayStatus = daily.map((d) => ({ date: d.date, ok: (d['p' + (idx + 1)] || 0) >= target }));
-        const missedCount = dayStatus.filter((ds) => !ds.ok).length;
-        if (missedCount > 0) {
-          entry.dayStatus = dayStatus;
-          entry.missedCount = missedCount;
-          entry.missedTotal = dayStatus.length;
-        }
-        if (actual < target) {
-          const curRaw = sumField(daily, 'p' + (idx + 1) + '_raw');
-          const curDenom = sumField(daily, 'p' + (idx + 1) + '_denom');
-          const prevRaw = sumField(prevDaily, 'p' + (idx + 1) + '_raw');
-          const prevDenom = sumField(prevDaily, 'p' + (idx + 1) + '_denom');
-          entry.reason = buildReason(curRaw, curDenom, prevRaw, prevDenom, mode);
-        }
-      }
+      const entry = { label: s.name + ' 평균', color: s.color, value: fmt1(actual), rawValue: actual, sub: mode === 'hours' ? '근무시간당' : '배치 인원 1인당' };
+      attachTarget(
+        entry, findTarget(s.name), actual, s.data, daily,
+        sumField(daily, 'p' + (idx + 1) + '_raw'), sumField(daily, 'p' + (idx + 1) + '_denom'),
+        sumField(prevDaily, 'p' + (idx + 1) + '_raw'), sumField(prevDaily, 'p' + (idx + 1) + '_denom'), mode
+      );
       base.push(entry);
     });
     return base;
@@ -152,7 +172,7 @@ export default function DashboardPage() {
       <div className="header">
         <div>
           <h1>CPC 대시보드</h1>
-          <p>월별 P1 / P2 / P3 CPC 추이 · 계산 방식을 실시간으로 전환할 수 있습니다.</p>
+          <p>월별 워크센터별 CPC 추이 · 계산 방식을 실시간으로 전환할 수 있습니다.</p>
         </div>
         <div className="badge">{data ? `${data.range_label} · ${daily.length}일` : '불러오는 중...'}</div>
       </div>
@@ -212,7 +232,7 @@ export default function DashboardPage() {
 
           <div className="grid-main">
             <div className="card">
-              <div className="card-title">일자별 P1 / P2 / P3 CPC 추이</div>
+              <div className="card-title">일자별 워크센터별 CPC 추이</div>
               <div className="card-desc">{mode === 'hours' ? '근무시간(시프트 배치시간 + 연장근무) 당 CPC' : '배치 인원 1인당 CPC'}</div>
               <div className="legend-row">
                 {seriesMeta.map((m, i) => (
@@ -235,7 +255,7 @@ export default function DashboardPage() {
 
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title">전체 1인당 CPC 추이</div>
-            <div className="card-desc">{mode === 'hours' ? '전체 근무시간(P1+P2+P3+관리인력) 당 CPC' : '전체 인원(P1+P2+P3+관리인력) 1인당 CPC'} · 일 단위</div>
+            <div className="card-desc">{mode === 'hours' ? '전체 근무시간(워크센터+관리인력) 당 CPC' : '전체 인원(워크센터+관리인력) 1인당 CPC'} · 일 단위</div>
             <div className="chart-box">
               {daily.length > 0 && (
                 <LineChart labels={labels} series={[{ name: '전체 1인당', color: '#334155', data: totalPerPerson }]} height={340} />
@@ -250,7 +270,7 @@ export default function DashboardPage() {
                 <div className="card-desc" style={{ margin: 0 }}>
                   {tableDetail
                     ? `${mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} 워크센터별 CPC 합계 · ${denomLabel} · 1인당 및 일일 합계`
-                    : `${mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} P1 / P2 / P3 CPC 및 일일 합계`}
+                    : `${mode === 'hours' ? '근무시간 기준' : '배치 인원수 기준'} 워크센터별 CPC 및 일일 합계`}
                 </div>
               </div>
               <div className="seg">
